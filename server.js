@@ -4,10 +4,10 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import cors from 'cors';
+import cors from 'cors'; // Import cors
 import bcrypt from 'bcryptjs'; // For password hashing
 import jwt from 'jsonwebtoken'; // For JSON Web Tokens
-import twilio from 'twilio'; // Uncommented: Import Twilio module
+import twilio from 'twilio'; // Twilio module
 
 // Load environment variables from .env file
 dotenv.config();
@@ -15,12 +15,19 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
+// --- CORS Configuration ---
+// In production, replace '*' with your actual frontend URL (e.g., 'https://your-frontend-app.vercel.app')
+app.use(cors({
+    origin: '*', // Allows all origins for now. IMPORTANT: Change this in production!
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 // Middleware
 app.use(express.json()); // For parsing application/json
-app.use(cors()); // Enable CORS for all origins, or configure specific origins if needed
 
 // --- Database Connection ---
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ratingapp';
+const MONGODB_URI = process.env.MONGODB_URI; // No fallback here, must be in Render env vars
 
 mongoose.connect(MONGODB_URI)
     .then(() => console.log('MongoDB connected successfully!'))
@@ -113,21 +120,27 @@ const Review = mongoose.model('Review', reviewSchema);
 
 
 // --- JWT Secret ---
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkey'; // Use a strong, random key in production!
+const JWT_SECRET = process.env.JWT_SECRET; // No fallback here, must be in Render env vars
 
 // --- Twilio Configuration (for WhatsApp) ---
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER; // Your Twilio WhatsApp-enabled number (e.g., 'whatsapp:+14155238886')
-const ADMIN_WHATSAPP_NUMBER = process.env.ADMIN_WHATSAPP_NUMBER; // Admin's WhatsApp number (e.g., 'whatsapp:+2547XXXXXXXX')
+const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+const ADMIN_WHATSAPP_NUMBER = process.env.ADMIN_WHATSAPP_NUMBER;
 
-// Initialize Twilio client
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+// Initialize Twilio client (only if credentials are provided)
+let twilioClient;
+if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+} else {
+    console.warn('Twilio client not initialized: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN missing.');
+}
+
 
 // Function to send WhatsApp notification (REAL IMPLEMENTATION)
 const sendWhatsAppNotification = async (messageBody) => {
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER || !ADMIN_WHATSAPP_NUMBER) {
-        console.error('Twilio credentials or admin WhatsApp number are not fully configured in .env. Skipping real WhatsApp notification.');
+    if (!twilioClient || !TWILIO_PHONE_NUMBER || !ADMIN_WHATSAPP_NUMBER) {
+        console.error('Twilio client not fully configured or initialized. Skipping real WhatsApp notification.');
         console.log('\n--- FALLBACK TO SIMULATED WHATSAPP NOTIFICATION ---');
         console.log(`To: ${ADMIN_WHATSAPP_NUMBER || 'Admin WhatsApp Number'}`);
         console.log(`Message: ${messageBody}`);
