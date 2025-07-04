@@ -18,7 +18,7 @@ const app = express();
 // --- CORS Configuration ---
 // In production, replace '*' with your actual frontend URL (e.g., 'https://your-frontend-app.vercel.app')
 app.use(cors({
-    origin: 'https://hotel-review-self.vercel.app/', // Allows all origins for now. IMPORTANT: Change this in production!
+    origin: 'https://hotel-review-self.vercel.app', // Allows all origins for now. IMPORTANT: Change this in production!
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
