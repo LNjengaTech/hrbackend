@@ -99,8 +99,6 @@ const authenticateToken = (req, res, next) => {
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) {
             console.error('JWT verification error:', err);
-            // This is the error you were seeing: "jwt malformed"
-            // It means the token string itself was not a valid JWT format.
             return res.status(403).json({ message: 'Invalid or expired token' });
         }
         req.user = user; // Attach user payload to request
@@ -251,7 +249,7 @@ app.post('/api/auth/login', async (req, res) => {
 
         // Generate JWT
         const payload = {
-            user: { // Ensure this 'user' object is consistently present
+            user: { // This payload structure is what authenticateToken middleware receives
                 id: user.id,
                 username: user.username,
                 email: user.email,
@@ -267,8 +265,8 @@ app.post('/api/auth/login', async (req, res) => {
                 if (err) throw err;
                 res.json({
                     message: 'Logged in successfully!',
-                    token,
-                    user: { // Ensure this 'user' object is consistently present in the response
+                    token, // The actual JWT token string
+                    user: { // The user object to be sent to the frontend
                         id: user.id,
                         username: user.username,
                         email: user.email,
