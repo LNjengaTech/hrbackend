@@ -364,11 +364,16 @@ app.post('/api/auth/login', async (req, res) => {
 
 // Submit a new review (User protected)
 app.post('/api/reviews', authenticateToken, async (req, res) => {
+    console.log("Backend /api/reviews: Received request."); // Debug log
+    console.log("Backend /api/reviews: req.body:", req.body); // Debug log
+    console.log("Backend /api/reviews: req.user (from token):", req.user); // Debug log
+
     const { hotel: hotelId, rating, comment } = req.body;
-    const userId = req.user.id; // User ID from authenticated token
-    const userName = req.user.username; // Username from authenticated token
+    const userId = req.user?.id; // Use optional chaining in case req.user is null/undefined
+    const userName = req.user?.username; // Use optional chaining
 
     if (!hotelId || !rating || !userId || !userName) {
+        console.error("Backend /api/reviews: Missing required fields. hotelId:", hotelId, "rating:", rating, "userId:", userId, "userName:", userName); // Debug log
         return res.status(400).json({ message: 'Hotel ID, rating, user ID, and username are required for a review.' });
     }
 
@@ -376,6 +381,7 @@ app.post('/api/reviews', authenticateToken, async (req, res) => {
         // Check if the user has already reviewed this hotel
         const existingReview = await Review.findOne({ hotel: hotelId, user: userId });
         if (existingReview) {
+            console.warn("Backend /api/reviews: User already reviewed this hotel."); // Debug log
             return res.status(409).json({ message: 'You have already submitted a review for this hotel.' });
         }
 
@@ -388,9 +394,10 @@ app.post('/api/reviews', authenticateToken, async (req, res) => {
         });
 
         await newReview.save();
+        console.log("Backend /api/reviews: Review saved successfully:", newReview); // Debug log
         res.status(201).json({ message: 'Review submitted successfully!', review: newReview });
     } catch (error) {
-        console.error('Error submitting review:', error);
+        console.error('Backend /api/reviews: Error submitting review:', error); // Debug log
         res.status(500).json({ message: 'Failed to submit review', error: error.message });
     }
 });
