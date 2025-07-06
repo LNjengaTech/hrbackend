@@ -101,7 +101,7 @@ const authenticateToken = (req, res, next) => {
             console.error('JWT verification error:', err);
             return res.status(403).json({ message: 'Invalid or expired token' });
         }
-        req.user = user; // Attach user payload to request
+        req.user = user; // Attach user payload to request (this 'user' object is from the JWT payload)
         next();
     });
 };
@@ -109,9 +109,12 @@ const authenticateToken = (req, res, next) => {
 // --- Middleware for Admin Authorization ---
 const authorizeAdmin = (req, res, next) => {
     // Check if req.user exists and if req.user.isAdmin is true
+    console.log("authorizeAdmin: Checking user privileges. req.user:", req.user);
     if (!req.user || !req.user.isAdmin) {
+        console.warn("authorizeAdmin: Access denied for user:", req.user ? req.user.email : "No user", "isAdmin:", req.user ? req.user.isAdmin : "N/A");
         return res.status(403).json({ message: 'Access denied: Admin privileges required' });
     }
+    console.log("authorizeAdmin: Access granted for user:", req.user.email);
     next();
 };
 
@@ -122,13 +125,19 @@ app.get('/', (req, res) => {
     res.send('Rating App Backend is running!');
 });
 
-// TEMPORARY: Route to create an admin user for testing
+// TEMPORARY: Route to create an admin user for testing (Keep this for now)
 app.post('/api/seed-admin', async (req, res) => {
     try {
         const adminEmail = 'admin@example.com';
         let adminUser = await User.findOne({ email: adminEmail });
 
         if (adminUser) {
+            // Update existing user to ensure isAdmin is true, in case it was false
+            if (!adminUser.isAdmin) {
+                adminUser.isAdmin = true;
+                await adminUser.save();
+                return res.status(200).json({ message: 'Admin user already exists, isAdmin updated to true.' });
+            }
             return res.status(200).json({ message: 'Admin user already exists.' });
         }
 
@@ -276,29 +285,35 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         // Generate JWT
+        // THIS IS THE CRITICAL PAYLOAD THAT GETS SIGNED INTO THE TOKEN
         const payload = {
-            user: { // This payload structure is what authenticateToken middleware receives
+            user: { // Ensure this 'user' object is consistently present and includes isAdmin
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                isAdmin: user.isAdmin // Ensure isAdmin is correctly included in the JWT payload
+                isAdmin: user.isAdmin // <--- THIS MUST BE INCLUDED IN THE PAYLOAD
             }
         };
+
+        console.log("Login Route: JWT Payload being signed:", payload); // Log the payload
 
         jwt.sign(
             payload,
             JWT_SECRET,
             { expiresIn: '1h' }, // Token expires in 1 hour
             (err, token) => {
-                if (err) throw err;
+                if (err) {
+                    console.error("JWT Sign Error:", err);
+                    return res.status(500).json({ message: 'Error signing token' });
+                }
                 res.json({
                     message: 'Logged in successfully!',
                     token, // The actual JWT token string
-                    user: { // The user object to be sent to the frontend
+                    user: { // The user object to be sent to the frontend response body
                         id: user.id,
                         username: user.username,
                         email: user.email,
-                        isAdmin: user.isAdmin // Ensure isAdmin is correctly included in the response body
+                        isAdmin: user.isAdmin // <--- THIS MUST BE INCLUDED IN THE RESPONSE BODY
                     }
                 });
             }
