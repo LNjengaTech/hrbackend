@@ -84,6 +84,40 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+// NEW: Review Schema
+const reviewSchema = new mongoose.Schema({
+    hotel: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Hotel', // References the Hotel model
+        required: true
+    },
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User', // References the User model
+        required: true
+    },
+    userName: { // Store username directly for easier display
+        type: String,
+        required: true
+    },
+    rating: {
+        type: Number,
+        required: true,
+        min: 1,
+        max: 5
+    },
+    comment: {
+        type: String,
+        trim: true
+    }
+}, { timestamps: true });
+
+// Add a unique compound index to prevent multiple reviews by the same user for the same hotel
+reviewSchema.index({ hotel: 1, user: 1 }, { unique: true });
+
+const Review = mongoose.model('Review', reviewSchema);
+
+
 // --- JWT Secret ---
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkey'; // Use a strong, random key in production!
 
@@ -218,8 +252,8 @@ app.delete('/api/hotels/:id', authenticateToken, authorizeAdmin, async (req, res
         if (!deletedHotel) {
             return res.status(404).json({ message: 'Hotel not found.' });
         }
-        // Optionally, delete all reviews associated with this hotel
-        // await Review.deleteMany({ hotel: id }); // If you have a Review model
+        // Also delete all reviews associated with this hotel
+        await Review.deleteMany({ hotel: id });
         res.status(200).json({ message: 'Hotel deleted successfully!' });
     } catch (error) {
         console.error('Error deleting hotel:', error);
@@ -287,17 +321,16 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         // Generate JWT
-        // THIS IS THE CRITICAL PAYLOAD THAT GETS SIGNED INTO THE TOKEN
         const payload = {
             user: { // Ensure this 'user' object is consistently present and includes isAdmin
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                isAdmin: user.isAdmin // <--- THIS MUST BE INCLUDED IN THE PAYLOAD
+                isAdmin: user.isAdmin
             }
         };
 
-        console.log("Login Route: JWT Payload being signed:", payload); // Log the payload to verify isAdmin
+        console.log("Login Route: JWT Payload being signed:", payload);
 
         jwt.sign(
             payload,
@@ -315,7 +348,7 @@ app.post('/api/auth/login', async (req, res) => {
                         id: user.id,
                         username: user.username,
                         email: user.email,
-                        isAdmin: user.isAdmin // <--- THIS MUST BE INCLUDED IN THE RESPONSE BODY
+                        isAdmin: user.isAdmin
                     }
                 });
             }
@@ -327,24 +360,68 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// --- Review Routes ---
+
+// Submit a new review (User protected)
+app.post('/api/reviews', authenticateToken, async (req, res) => {
+    const { hotel: hotelId, rating, comment } = req.body;
+    const userId = req.user.id; // User ID from authenticated token
+    const userName = req.user.username; // Username from authenticated token
+
+    if (!hotelId || !rating || !userId || !userName) {
+        return res.status(400).json({ message: 'Hotel ID, rating, user ID, and username are required for a review.' });
+    }
+
+    try {
+        // Check if the user has already reviewed this hotel
+        const existingReview = await Review.findOne({ hotel: hotelId, user: userId });
+        if (existingReview) {
+            return res.status(409).json({ message: 'You have already submitted a review for this hotel.' });
+        }
+
+        const newReview = new Review({
+            hotel: hotelId,
+            user: userId,
+            userName: userName, // Store username directly
+            rating,
+            comment
+        });
+
+        await newReview.save();
+        res.status(201).json({ message: 'Review submitted successfully!', review: newReview });
+    } catch (error) {
+        console.error('Error submitting review:', error);
+        res.status(500).json({ message: 'Failed to submit review', error: error.message });
+    }
+});
+
+// Get reviews for a specific hotel (Publicly accessible)
+app.get('/api/reviews/hotel/:hotelId', async (req, res) => {
+    const { hotelId } = req.params;
+    try {
+        const reviews = await Review.find({ hotel: hotelId })
+            .populate('user', 'username') // Populate user details if needed, though userName is stored directly
+            .sort({ createdAt: -1 }); // Latest reviews first
+        res.status(200).json(reviews);
+    } catch (error) {
+        console.error('Error fetching reviews for hotel:', error);
+        res.status(500).json({ message: 'Failed to fetch reviews', error: error.message });
+    }
+});
+
+
 // --- Analytics Routes (Admin Protected) ---
-// You will need a Review model and actual reviews in your DB for these to return meaningful data.
 
 // Overall Analytics
 app.get('/api/analytics/overall', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
         const totalHotels = await Hotel.countDocuments();
         const totalUsers = await User.countDocuments();
-        // Assuming you have a Review model
-        // const totalReviews = await Review.countDocuments();
-        // const avgRatingResult = await Review.aggregate([
-        //     { $group: { _id: null, averageRating: { $avg: '$rating' } } }
-        // ]);
-        // const averageRating = avgRatingResult.length > 0 ? avgRatingResult[0].averageRating.toFixed(2) : 0;
-
-        // Placeholder data if Review model is not yet implemented or no reviews exist
-        const totalReviews = 0;
-        const averageRating = 0;
+        const totalReviews = await Review.countDocuments(); // Fetch actual count
+        const avgRatingResult = await Review.aggregate([
+            { $group: { _id: null, averageRating: { $avg: '$rating' } } }
+        ]);
+        const averageRating = avgRatingResult.length > 0 ? avgRatingResult[0].averageRating.toFixed(2) : 0;
 
         res.json({ totalHotels, totalUsers, totalReviews, averageRating });
     } catch (error) {
@@ -356,9 +433,6 @@ app.get('/api/analytics/overall', authenticateToken, authorizeAdmin, async (req,
 // Reviews per Hotel
 app.get('/api/analytics/reviews-per-hotel', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        // This query requires a Review model that links to Hotel
-        // Example if you have Review model:
-        /*
         const reviewsPerHotel = await Review.aggregate([
             {
                 $group: {
@@ -369,31 +443,28 @@ app.get('/api/analytics/reviews-per-hotel', authenticateToken, authorizeAdmin, a
             },
             {
                 $lookup: {
-                    from: 'hotels', // The collection name for Hotel model
+                    from: 'hotels', // The collection name for Hotel model (lowercase, plural)
                     localField: '_id',
                     foreignField: '_id',
                     as: 'hotelDetails'
                 }
             },
             {
-                $unwind: '$hotelDetails'
+                $unwind: { path: '$hotelDetails', preserveNullAndEmptyArrays: true } // Use unwind with preserveNullAndEmptyArrays
             },
             {
                 $project: {
                     _id: 0,
                     hotelId: '$_id',
-                    hotelName: '$hotelDetails.name',
+                    hotelName: '$hotelDetails.name', // Access name from populated hotelDetails
                     reviewCount: 1,
                     averageRating: { $round: ['$averageRating', 2] }
                 }
+            },
+            {
+                $sort: { reviewCount: -1 } // Sort by review count descending
             }
         ]);
-        */
-        // Placeholder data
-        const reviewsPerHotel = [
-            { hotelId: 'dummy1', hotelName: 'The Oceanfront Resort', reviewCount: 5, averageRating: 4.5 },
-            { hotelId: 'dummy2', hotelName: 'Spice Bistro', reviewCount: 3, averageRating: 3.8 },
-        ];
         res.json(reviewsPerHotel);
     } catch (error) {
         console.error('Error fetching reviews per hotel analytics:', error);
@@ -404,21 +475,25 @@ app.get('/api/analytics/reviews-per-hotel', authenticateToken, authorizeAdmin, a
 // Recent Reviews
 app.get('/api/analytics/recent-reviews', authenticateToken, authorizeAdmin, async (req, res) => {
     try {
-        // This query requires a Review model that links to User and Hotel
-        // Example if you have Review model:
-        /*
         const recentReviews = await Review.find()
             .sort({ createdAt: -1 })
-            .limit(5)
+            .limit(5) // Limit to 5 most recent reviews
             .populate('user', 'username') // Populate user details
             .populate('hotel', 'name'); // Populate hotel details
-        */
-        // Placeholder data
-        const recentReviews = [
-            { _id: 'r1', comment: 'Great service!', rating: 5, userName: 'Alice', hotel: { name: 'The Oceanfront Resort' }, createdAt: new Date() },
-            { _id: 'r2', comment: 'Food was okay.', rating: 3, userName: 'Bob', hotel: { name: 'Spice Bistro' }, createdAt: new Date(Date.now() - 86400000) }, // 1 day ago
-        ];
-        res.json(recentReviews);
+
+        // Map to include userName directly from the review document, and hotel name from populated data
+        const formattedReviews = recentReviews.map(review => ({
+            _id: review._id,
+            comment: review.comment,
+            rating: review.rating,
+            userName: review.userName, // Use userName directly from review document
+            hotel: {
+                name: review.hotel ? review.hotel.name : 'Unknown Hotel' // Handle case where hotel might not be found
+            },
+            createdAt: review.createdAt
+        }));
+
+        res.json(formattedReviews);
     } catch (error) {
         console.error('Error fetching recent reviews analytics:', error);
         res.status(500).json({ message: 'Failed to fetch recent reviews analytics', error: error.message });
@@ -434,4 +509,4 @@ app.listen(PORT, () => {
 });
 
 // Export models for use in other files (if we modularize later)
-export { Hotel, User };
+export { Hotel, User, Review };
