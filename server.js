@@ -108,6 +108,7 @@ const authenticateToken = (req, res, next) => {
 
 // --- Middleware for Admin Authorization ---
 const authorizeAdmin = (req, res, next) => {
+    // Check if req.user exists and if req.user.isAdmin is true
     if (!req.user || !req.user.isAdmin) {
         return res.status(403).json({ message: 'Access denied: Admin privileges required' });
     }
@@ -120,6 +121,33 @@ const authorizeAdmin = (req, res, next) => {
 app.get('/', (req, res) => {
     res.send('Rating App Backend is running!');
 });
+
+// TEMPORARY: Route to create an admin user for testing
+app.post('/api/seed-admin', async (req, res) => {
+    try {
+        const adminEmail = 'admin@example.com';
+        let adminUser = await User.findOne({ email: adminEmail });
+
+        if (adminUser) {
+            return res.status(200).json({ message: 'Admin user already exists.' });
+        }
+
+        const hashedPassword = await bcrypt.hash('adminpassword', 10); // Use a strong password!
+        adminUser = new User({
+            username: 'admin',
+            email: adminEmail,
+            password: hashedPassword,
+            isAdmin: true // This is the crucial part
+        });
+
+        await adminUser.save();
+        res.status(201).json({ message: 'Admin user created successfully!', user: adminUser });
+    } catch (error) {
+        console.error('Error seeding admin user:', error);
+        res.status(500).json({ message: 'Failed to seed admin user', error: error.message });
+    }
+});
+
 
 // Route to get all hotels (publicly accessible)
 app.get('/api/hotels', async (req, res) => {
@@ -253,7 +281,7 @@ app.post('/api/auth/login', async (req, res) => {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                isAdmin: user.isAdmin
+                isAdmin: user.isAdmin // Ensure isAdmin is correctly included in the JWT payload
             }
         };
 
@@ -270,7 +298,7 @@ app.post('/api/auth/login', async (req, res) => {
                         id: user.id,
                         username: user.username,
                         email: user.email,
-                        isAdmin: user.isAdmin
+                        isAdmin: user.isAdmin // Ensure isAdmin is correctly included in the response body
                     }
                 });
             }
