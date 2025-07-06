@@ -96,12 +96,14 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ message: 'Authentication token required' });
     }
 
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, (err, decodedToken) => { // Renamed 'user' to 'decodedToken' for clarity
         if (err) {
             console.error('JWT verification error:', err);
             return res.status(403).json({ message: 'Invalid or expired token' });
         }
-        req.user = user; // Attach user payload to request (this 'user' object is from the JWT payload)
+        // CRITICAL FIX: Assign the nested user object from the decoded token to req.user
+        req.user = decodedToken.user;
+        console.log("authenticateToken: JWT verified. User payload from token (after fix):", req.user); // Log the corrected user object
         next();
     });
 };
@@ -295,7 +297,7 @@ app.post('/api/auth/login', async (req, res) => {
             }
         };
 
-        console.log("Login Route: JWT Payload being signed:", payload); // Log the payload
+        console.log("Login Route: JWT Payload being signed:", payload); // Log the payload to verify isAdmin
 
         jwt.sign(
             payload,
